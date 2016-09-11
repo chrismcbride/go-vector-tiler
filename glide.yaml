@@ -1,0 +1,5 @@
+package: github.com/chrismcbride/go-vector-tiler
+import:
+- package: github.com/twpayne/go-geom
+  subpackages:
+  - encoding/geojson
