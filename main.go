@@ -20,7 +20,7 @@ func main() {
 	if goGeom.Layout() != geom.XY {
 		panic("Only 2D geometries supported")
 	}
-	clipped, err := clip.ByRectangle(goGeom, -75.30, -75, 39.80, 40.10)
+	clipped, err := clip.ByRectangle(goGeom, -75.40, -74.90, 39.70, 40.30)
 	if err == clip.ErrEmptyResult {
 		fmt.Printf("Empty clip")
 		os.Exit(1)

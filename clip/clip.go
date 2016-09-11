@@ -11,6 +11,7 @@ import (
 
 	"github.com/twpayne/go-geom"
 
+	"github.com/chrismcbride/go-vector-tiler/bounds"
 	"github.com/chrismcbride/go-vector-tiler/metrics"
 	"github.com/chrismcbride/go-vector-tiler/planar"
 )
@@ -21,7 +22,8 @@ var (
 	ErrUnsupportedType = errors.New("Unsupported geometry type")
 )
 
-// ByRectangle clips a geometry by a rectangle. Returns an error on empty clip.
+// ByRectangle clips a geometry by a rectangle (inclusive).
+// Returns an error on empty clip.
 func ByRectangle(g geom.T, xmin, xmax, ymin, ymax float64) (geom.T, error) {
 	defer metrics.LogElapsedTime(time.Now(), "clip.ByRectangle")
 
@@ -32,7 +34,7 @@ func ByRectangle(g geom.T, xmin, xmax, ymin, ymax float64) (geom.T, error) {
 	return ByAxis(clippedX, planar.YAxis, ymin, ymax)
 }
 
-// ByAxis clips a geometry between two bounds along an axis
+// ByAxis inclusively clips a geometry between two bounds along an axis
 func ByAxis(g geom.T, axis planar.Axis, min, max float64) (geom.T, error) {
 	switch geometry := g.(type) {
 	case *geom.MultiPolygon:
@@ -46,7 +48,7 @@ func ByAxis(g geom.T, axis planar.Axis, min, max float64) (geom.T, error) {
 	}
 }
 
-// MultiPolygonByAxis clips a multipolygon along axis bounds
+// MultiPolygonByAxis inclusively clips a multipolygon along axis bounds
 func MultiPolygonByAxis(
 	mp *geom.MultiPolygon, axis planar.Axis,
 	min, max float64) (*geom.MultiPolygon, error) {
@@ -70,7 +72,7 @@ func MultiPolygonByAxis(
 	return nil, ErrEmptyResult
 }
 
-// PolygonByAxis clips a polygon along axis bounds
+// PolygonByAxis inclusively clips a polygon along axis bounds
 func PolygonByAxis(
 	p *geom.Polygon, axis planar.Axis, min, max float64) (*geom.Polygon, error) {
 
@@ -94,7 +96,7 @@ func PolygonByAxis(
 	return nil, ErrEmptyResult
 }
 
-// LinearRingByAxis clips a linear ring along axis bounds
+// LinearRingByAxis inclusively clips a linear ring along axis bounds
 func LinearRingByAxis(
 	lr *geom.LinearRing, axis planar.Axis,
 	min, max float64) (*geom.LinearRing, error) {
@@ -107,41 +109,40 @@ func LinearRingByAxis(
 	endIndex := len(flatCoords) - 2
 	minLine := axis.Line(min)
 	maxLine := axis.Line(max)
+	axisBounds := planar.NewInclusiveAxisBounds(axis, min, max)
 	for i := 0; i < endIndex; i += 2 {
 		aCoord := planar.Coord(flatCoords[i:(i + 2)])
 		bCoord := planar.Coord(flatCoords[(i + 2):(i + 4)])
-		a := aCoord.ValueAtAxis(axis)
-		b := bCoord.ValueAtAxis(axis)
+		aCmp := axisBounds.CompareCoord(aCoord)
+		bCmp := axisBounds.CompareCoord(bCoord)
 
-		if a < min {
-			if b >= min {
-				// ---|-->  |
-				addCoord(minLine.Intersection(aCoord, bCoord))
-				if b > max { // ---|-----|-->
-					addCoord(maxLine.Intersection(aCoord, bCoord))
-				} else if i == endIndex {
-					// At the last point and B is in bounds. Include it
-					addCoord(bCoord)
-				}
-			}
-		} else if a > max {
-			if b <= max {
-				// |  <--|---
+		switch {
+		case aCmp == bounds.LessThan && bCmp != bounds.LessThan:
+			// ---|-->  |
+			addCoord(minLine.Intersection(aCoord, bCoord))
+			if bCmp == bounds.GreaterThan {
+				// ---|-----|-->
 				addCoord(maxLine.Intersection(aCoord, bCoord))
-				if b < min { // <--|----|---
-					addCoord(minLine.Intersection(aCoord, bCoord))
-				} else if i == endIndex {
-					// last point
-					addCoord(bCoord)
-				}
 			}
-		} else {
+		case aCmp == bounds.GreaterThan && bCmp != bounds.GreaterThan:
+			// |  <--|---
+			addCoord(maxLine.Intersection(aCoord, bCoord))
+			if bCmp == bounds.LessThan { // <--|----|---
+				addCoord(minLine.Intersection(aCoord, bCoord))
+			}
+		case aCmp == bounds.Inside:
 			addCoord(aCoord)
-			if b <= min { // <--|---  |
+			if bCmp == bounds.LessThan { // <--|---  |
 				addCoord(minLine.Intersection(aCoord, bCoord))
-			} else if b >= max { // |  ---|-->
+			} else if bCmp == bounds.GreaterThan { // |  ---|-->
 				addCoord(maxLine.Intersection(aCoord, bCoord))
 			}
+		}
+
+		if i == endIndex && bCmp == bounds.Inside {
+			// At the last point and B is in bounds. Include it, otherwise it will be
+			// part of the next line segment
+			addCoord(bCoord)
 		}
 	}
 	// close the ring

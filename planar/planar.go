@@ -1,6 +1,8 @@
 // Package planar provides primitives for planar geometry
 package planar
 
+import "github.com/chrismcbride/go-vector-tiler/bounds"
+
 // An Axis in euclidean space
 type Axis int
 
@@ -68,4 +70,28 @@ func (y yAxisLine) Intersection(start, end Coord) Coord {
 	runOverRise := (end.X() - start.X()) / (end.Y() - start.Y())
 	newX := yDistance*runOverRise + start.X()
 	return Coord{newX, float64(y)}
+}
+
+// InclusiveAxisBounds inclusively compares geometries against axis boundaries
+type InclusiveAxisBounds struct {
+	axis Axis
+	min  float64
+	max  float64
+}
+
+// NewInclusiveAxisBounds creates InclusiveAxisBounds
+func NewInclusiveAxisBounds(a Axis, min, max float64) *InclusiveAxisBounds {
+	return &InclusiveAxisBounds{a, min, max}
+}
+
+// CompareCoord checks a coordinate against the axis boundary
+func (ab *InclusiveAxisBounds) CompareCoord(c Coord) bounds.Result {
+	axisValue := c.ValueAtAxis(ab.axis)
+	if axisValue < ab.min {
+		return bounds.LessThan
+	} else if axisValue > ab.max {
+		return bounds.GreaterThan
+	} else {
+		return bounds.Inside
+	}
 }
