@@ -12,6 +12,19 @@ const (
 	YAxis Axis = 1
 )
 
+// Invert returns the opposite axis
+func (a Axis) Invert() Axis {
+	if a == XAxis {
+		return YAxis
+	}
+	return XAxis
+}
+
+// Line creates a line on this axis at a given value
+func (a Axis) Line(axisValue float64) AxisLine {
+	return AxisLine{a, axisValue}
+}
+
 // Coord represents A 2D coordinate as a slice of 64bit floats
 type Coord []float64
 
@@ -36,62 +49,62 @@ func (c Coord) Equals(other Coord) bool {
 }
 
 // AxisLine represents an infinite line at a given value on an axis
-type AxisLine interface {
-	// Given two coordinates representing a line, returns the coordiante where
-	// the line meets the infinite axis line
-	Intersection(start, end Coord) Coord
+type AxisLine struct {
+	axis  Axis
+	value float64
 }
 
-// Line creates a line on this axis at a given value
-func (a Axis) Line(axisValue float64) AxisLine {
-	switch a {
-	case XAxis:
-		return xAxisLine(axisValue)
-	case YAxis:
-		return yAxisLine(axisValue)
-	default:
-		panic("Invalid axis")
+// Intersection takes two coordinates representing a line, and returns the
+// coordinate where the line meets the infinite axis line
+func (al AxisLine) Intersection(start, end Coord) Coord {
+	axisDist := float64(al.value) - start.ValueAtAxis(al.axis)
+	other := al.axis.Invert()
+	riseOverRun := (end.ValueAtAxis(other) - start.ValueAtAxis(other)) /
+		(end.ValueAtAxis(al.axis) - start.ValueAtAxis(al.axis))
+	newValue := axisDist*riseOverRun + start.ValueAtAxis(other)
+	if al.axis == XAxis {
+		return Coord{float64(al.value), newValue}
+	}
+	return Coord{newValue, float64(al.value)}
+}
+
+// AxisBounds inclusively compares geometries against axis boundaries
+type AxisBounds struct {
+	axis    Axis
+	min     float64
+	max     float64
+	minLine AxisLine
+	maxLine AxisLine
+}
+
+// NewAxisBounds creates an AxisBounds
+func NewAxisBounds(a Axis, min, max float64) *AxisBounds {
+	return &AxisBounds{
+		axis:    a,
+		min:     min,
+		max:     max,
+		minLine: a.Line(min),
+		maxLine: a.Line(max),
 	}
 }
 
-type xAxisLine float64
-
-func (x xAxisLine) Intersection(start, end Coord) Coord {
-	xDistance := float64(x) - start.X()
-	riseOverRun := (end.Y() - start.Y()) / (end.X() - start.X())
-	newY := xDistance*riseOverRun + start.Y()
-	return Coord{float64(x), newY}
-}
-
-type yAxisLine float64
-
-func (y yAxisLine) Intersection(start, end Coord) Coord {
-	yDistance := float64(y) - start.Y()
-	runOverRise := (end.X() - start.X()) / (end.Y() - start.Y())
-	newX := yDistance*runOverRise + start.X()
-	return Coord{newX, float64(y)}
-}
-
-// InclusiveAxisBounds inclusively compares geometries against axis boundaries
-type InclusiveAxisBounds struct {
-	axis Axis
-	min  float64
-	max  float64
-}
-
-// NewInclusiveAxisBounds creates InclusiveAxisBounds
-func NewInclusiveAxisBounds(a Axis, min, max float64) *InclusiveAxisBounds {
-	return &InclusiveAxisBounds{a, min, max}
-}
-
 // CompareCoord checks a coordinate against the axis boundary
-func (ab *InclusiveAxisBounds) CompareCoord(c Coord) bounds.Result {
+func (ab *AxisBounds) CompareCoord(c Coord) bounds.Result {
 	axisValue := c.ValueAtAxis(ab.axis)
 	if axisValue < ab.min {
 		return bounds.LessThan
 	} else if axisValue > ab.max {
 		return bounds.GreaterThan
-	} else {
-		return bounds.Inside
 	}
+	return bounds.Inside
+}
+
+// IntersectMin returns the intersection point with the min axis boundary
+func (ab *AxisBounds) IntersectMin(start, end Coord) Coord {
+	return ab.minLine.Intersection(start, end)
+}
+
+// IntersectMax returns the intersection point with the max axis boundary
+func (ab *AxisBounds) IntersectMax(start, end Coord) Coord {
+	return ab.maxLine.Intersection(start, end)
 }

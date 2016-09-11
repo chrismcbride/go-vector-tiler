@@ -9,7 +9,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/twpayne/go-geom"
+	geom "github.com/twpayne/go-geom"
 
 	"github.com/chrismcbride/go-vector-tiler/bounds"
 	"github.com/chrismcbride/go-vector-tiler/metrics"
@@ -27,22 +27,24 @@ var (
 func ByRectangle(g geom.T, xmin, xmax, ymin, ymax float64) (geom.T, error) {
 	defer metrics.LogElapsedTime(time.Now(), "clip.ByRectangle")
 
-	clippedX, err := ByAxis(g, planar.XAxis, xmin, xmax)
+	xAxisBounds := planar.NewAxisBounds(planar.XAxis, xmin, xmax)
+	clippedX, err := ByAxis(g, xAxisBounds)
 	if err != nil {
 		return nil, err
 	}
-	return ByAxis(clippedX, planar.YAxis, ymin, ymax)
+	yAxisBounds := planar.NewAxisBounds(planar.YAxis, ymin, ymax)
+	return ByAxis(clippedX, yAxisBounds)
 }
 
 // ByAxis inclusively clips a geometry between two bounds along an axis
-func ByAxis(g geom.T, axis planar.Axis, min, max float64) (geom.T, error) {
+func ByAxis(g geom.T, axisBounds *planar.AxisBounds) (geom.T, error) {
 	switch geometry := g.(type) {
 	case *geom.MultiPolygon:
-		return MultiPolygonByAxis(geometry, axis, min, max)
+		return MultiPolygonByAxis(geometry, axisBounds)
 	case *geom.Polygon:
-		return PolygonByAxis(geometry, axis, min, max)
+		return PolygonByAxis(geometry, axisBounds)
 	case *geom.LinearRing:
-		return LinearRingByAxis(geometry, axis, min, max)
+		return LinearRingByAxis(geometry, axisBounds)
 	default:
 		return nil, ErrUnsupportedType
 	}
@@ -50,20 +52,15 @@ func ByAxis(g geom.T, axis planar.Axis, min, max float64) (geom.T, error) {
 
 // MultiPolygonByAxis inclusively clips a multipolygon along axis bounds
 func MultiPolygonByAxis(
-	mp *geom.MultiPolygon, axis planar.Axis,
-	min, max float64) (*geom.MultiPolygon, error) {
+	mp *geom.MultiPolygon,
+	axisBounds *planar.AxisBounds) (*geom.MultiPolygon, error) {
 
 	result := geom.NewMultiPolygon(geom.XY)
 	numPolys := mp.NumPolygons()
 	for i := 0; i < numPolys; i++ {
-		clipped, err := PolygonByAxis(mp.Polygon(i), axis, min, max)
+		clipped, err := PolygonByAxis(mp.Polygon(i), axisBounds)
 		if err != ErrEmptyResult {
-			if err = result.Push(clipped); err != nil {
-				// This error is only possible if the clipped polygon has a different
-				// number of dimensions than the multipolygon. Since that would break
-				// an invariant this library maintains, we're panicing here.
-				panic(err)
-			}
+			result.Push(clipped)
 		}
 	}
 	if result.NumPolygons() > 0 {
@@ -74,20 +71,18 @@ func MultiPolygonByAxis(
 
 // PolygonByAxis inclusively clips a polygon along axis bounds
 func PolygonByAxis(
-	p *geom.Polygon, axis planar.Axis, min, max float64) (*geom.Polygon, error) {
+	p *geom.Polygon, axisBounds *planar.AxisBounds) (*geom.Polygon, error) {
 
 	result := geom.NewPolygon(geom.XY)
 	numRings := p.NumLinearRings()
 	for i := 0; i < numRings; i++ {
-		clipped, err := LinearRingByAxis(p.LinearRing(i), axis, min, max)
+		clipped, err := LinearRingByAxis(p.LinearRing(i), axisBounds)
 		if i == 0 && err == ErrEmptyResult {
 			// If the shell is empty, no sense clipping the holes
 			return nil, ErrEmptyResult
 		}
 		if err != ErrEmptyResult {
-			if err = result.Push(clipped); err != nil {
-				panic(err)
-			}
+			result.Push(clipped)
 		}
 	}
 	if result.NumLinearRings() > 0 {
@@ -98,8 +93,8 @@ func PolygonByAxis(
 
 // LinearRingByAxis inclusively clips a linear ring along axis bounds
 func LinearRingByAxis(
-	lr *geom.LinearRing, axis planar.Axis,
-	min, max float64) (*geom.LinearRing, error) {
+	lr *geom.LinearRing,
+	axisBounds *planar.AxisBounds) (*geom.LinearRing, error) {
 
 	var resultCoords []float64
 	addCoord := func(c planar.Coord) {
@@ -107,9 +102,6 @@ func LinearRingByAxis(
 	}
 	flatCoords := lr.FlatCoords()
 	endIndex := len(flatCoords) - 2
-	minLine := axis.Line(min)
-	maxLine := axis.Line(max)
-	axisBounds := planar.NewInclusiveAxisBounds(axis, min, max)
 	for i := 0; i < endIndex; i += 2 {
 		aCoord := planar.Coord(flatCoords[i:(i + 2)])
 		bCoord := planar.Coord(flatCoords[(i + 2):(i + 4)])
@@ -119,26 +111,26 @@ func LinearRingByAxis(
 		switch {
 		case aCmp == bounds.LessThan && bCmp != bounds.LessThan:
 			// ---|-->  |
-			addCoord(minLine.Intersection(aCoord, bCoord))
+			addCoord(axisBounds.IntersectMin(aCoord, bCoord))
 			if bCmp == bounds.GreaterThan {
 				// ---|-----|-->
-				addCoord(maxLine.Intersection(aCoord, bCoord))
+				addCoord(axisBounds.IntersectMax(aCoord, bCoord))
 			}
 		case aCmp == bounds.GreaterThan && bCmp != bounds.GreaterThan:
 			// |  <--|---
-			addCoord(maxLine.Intersection(aCoord, bCoord))
+			addCoord(axisBounds.IntersectMax(aCoord, bCoord))
 			if bCmp == bounds.LessThan {
 				// <--|----|---
-				addCoord(minLine.Intersection(aCoord, bCoord))
+				addCoord(axisBounds.IntersectMin(aCoord, bCoord))
 			}
 		case aCmp == bounds.Inside:
 			addCoord(aCoord)
 			if bCmp == bounds.LessThan {
 				// <--|---  |
-				addCoord(minLine.Intersection(aCoord, bCoord))
+				addCoord(axisBounds.IntersectMin(aCoord, bCoord))
 			} else if bCmp == bounds.GreaterThan {
 				// |  ---|-->
-				addCoord(maxLine.Intersection(aCoord, bCoord))
+				addCoord(axisBounds.IntersectMax(aCoord, bCoord))
 			}
 		}
 

@@ -96,8 +96,8 @@ func TestYAxisLine(t *testing.T) {
 	}
 }
 
-func TestInclusiveAxisBounds(t *testing.T) {
-	xBounds := NewInclusiveAxisBounds(XAxis, 10, 20)
+func TestAxisBounds(t *testing.T) {
+	xBounds := NewAxisBounds(XAxis, 10, 20)
 	for _, tc := range []struct {
 		c      Coord
 		result bounds.Result
