@@ -127,14 +127,17 @@ func LinearRingByAxis(
 		case aCmp == bounds.GreaterThan && bCmp != bounds.GreaterThan:
 			// |  <--|---
 			addCoord(maxLine.Intersection(aCoord, bCoord))
-			if bCmp == bounds.LessThan { // <--|----|---
+			if bCmp == bounds.LessThan {
+				// <--|----|---
 				addCoord(minLine.Intersection(aCoord, bCoord))
 			}
 		case aCmp == bounds.Inside:
 			addCoord(aCoord)
-			if bCmp == bounds.LessThan { // <--|---  |
+			if bCmp == bounds.LessThan {
+				// <--|---  |
 				addCoord(minLine.Intersection(aCoord, bCoord))
-			} else if bCmp == bounds.GreaterThan { // |  ---|-->
+			} else if bCmp == bounds.GreaterThan {
+				// |  ---|-->
 				addCoord(maxLine.Intersection(aCoord, bCoord))
 			}
 		}

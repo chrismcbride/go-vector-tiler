@@ -9,7 +9,7 @@ type Axis int
 // Axis definitions
 const (
 	XAxis Axis = 0
-	YAxis      = 1
+	YAxis Axis = 1
 )
 
 // Coord represents A 2D coordinate as a slice of 64bit floats
