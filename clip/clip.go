@@ -1,11 +1,13 @@
-// Clips geometries by axis parallel lines. Based on the implementation in
+// Package clip provides geometric clipping primitives.
+//
+// Slices geometries by axis parallel lines. Based on the implementation in
 // mapbox's geojson-vt project:
 // https://raw.githubusercontent.com/mapbox/geojson-vt-cpp/b9df0caa3a5c06838528c1989d11a697ece6e79b/include/mapbox/geojsonvt/clip.hpp
 package clip
 
 import (
-	"fmt"
-  "time"
+	"errors"
+	"time"
 
 	"github.com/twpayne/go-geom"
 
@@ -13,48 +15,48 @@ import (
 	"github.com/chrismcbride/go-vector-tiler/planar"
 )
 
-func ClipByRectangle(g geom.T, xmin, xmax, ymin, ymax float64) (geom.T, bool) {
-	defer metrics.LogElapsedTime(time.Now(), "ClipByRectangle")
+// Errors
+var (
+	ErrEmptyResult     = errors.New("Empty geometry from clip")
+	ErrUnsupportedType = errors.New("Unsupported geometry type")
+)
 
-	if clippedX, empty := ClipByAxis(g, planar.XAxis, xmin, xmax); empty {
-		return nil, true
-	} else {
-		return ClipByAxis(clippedX, planar.YAxis, ymin, ymax)
+// ByRectangle clips a geometry by a rectangle. Returns an error on empty clip.
+func ByRectangle(g geom.T, xmin, xmax, ymin, ymax float64) (geom.T, error) {
+	defer metrics.LogElapsedTime(time.Now(), "clip.ByRectangle")
+
+	clippedX, err := ByAxis(g, planar.XAxis, xmin, xmax)
+	if err != nil {
+		return nil, err
 	}
+	return ByAxis(clippedX, planar.YAxis, ymin, ymax)
 }
 
-func ClipByAxis(g geom.T, axis planar.Axis, min, max float64) (geom.T, bool) {
-	var clippedGeom geom.T
-	var isEmpty bool
+// ByAxis clips a geometry between two bounds along an axis
+func ByAxis(g geom.T, axis planar.Axis, min, max float64) (geom.T, error) {
 	switch geometry := g.(type) {
 	case *geom.MultiPolygon:
-		mp := ClipMultiPolygonByAxis(geometry, axis, min, max)
-		isEmpty = mp == nil
-		clippedGeom = mp
+		return MultiPolygonByAxis(geometry, axis, min, max)
 	case *geom.Polygon:
-		poly := ClipPolygonByAxis(geometry, axis, min, max)
-		isEmpty = poly == nil
-		clippedGeom = poly
+		return PolygonByAxis(geometry, axis, min, max)
 	case *geom.LinearRing:
-		lr := ClipLinearRingByAxis(geometry, axis, min, max)
-		isEmpty = lr == nil
-		clippedGeom = lr
+		return LinearRingByAxis(geometry, axis, min, max)
 	default:
-		panic(fmt.Sprintf("Unsupported geom type: %T", geometry))
+		return nil, ErrUnsupportedType
 	}
-	return clippedGeom, isEmpty
 }
 
-func ClipMultiPolygonByAxis(
+// MultiPolygonByAxis clips a multipolygon along axis bounds
+func MultiPolygonByAxis(
 	mp *geom.MultiPolygon, axis planar.Axis,
-	min, max float64) *geom.MultiPolygon {
+	min, max float64) (*geom.MultiPolygon, error) {
 
 	result := geom.NewMultiPolygon(geom.XY)
 	numPolys := mp.NumPolygons()
 	for i := 0; i < numPolys; i++ {
-		clipped := ClipPolygonByAxis(mp.Polygon(i), axis, min, max)
-		if clipped != nil {
-			if err := result.Push(clipped); err != nil {
+		clipped, err := PolygonByAxis(mp.Polygon(i), axis, min, max)
+		if err != ErrEmptyResult {
+			if err = result.Push(clipped); err != nil {
 				// This error is only possible if the clipped polygon has a different
 				// number of dimensions than the multipolygon. Since that would break
 				// an invariant this library maintains, we're panicing here.
@@ -63,36 +65,39 @@ func ClipMultiPolygonByAxis(
 		}
 	}
 	if result.NumPolygons() > 0 {
-		return result
+		return result, nil
 	}
-	return nil
+	return nil, ErrEmptyResult
 }
 
-func ClipPolygonByAxis(
-	p *geom.Polygon, axis planar.Axis, min, max float64) *geom.Polygon {
+// PolygonByAxis clips a polygon along axis bounds
+func PolygonByAxis(
+	p *geom.Polygon, axis planar.Axis, min, max float64) (*geom.Polygon, error) {
 
 	result := geom.NewPolygon(geom.XY)
 	numRings := p.NumLinearRings()
 	for i := 0; i < numRings; i++ {
-		clipped := ClipLinearRingByAxis(p.LinearRing(i), axis, min, max)
-		if i == 0 && clipped == nil {
+		clipped, err := LinearRingByAxis(p.LinearRing(i), axis, min, max)
+		if i == 0 && err == ErrEmptyResult {
 			// If the shell is empty, no sense clipping the holes
-			return nil
+			return nil, ErrEmptyResult
 		}
-		if clipped != nil {
-			if err := result.Push(clipped); err != nil {
+		if err != ErrEmptyResult {
+			if err = result.Push(clipped); err != nil {
 				panic(err)
 			}
 		}
 	}
 	if result.NumLinearRings() > 0 {
-		return result
+		return result, nil
 	}
-	return nil
+	return nil, ErrEmptyResult
 }
 
-func ClipLinearRingByAxis(
-	lr *geom.LinearRing, axis planar.Axis, min, max float64) *geom.LinearRing {
+// LinearRingByAxis clips a linear ring along axis bounds
+func LinearRingByAxis(
+	lr *geom.LinearRing, axis planar.Axis,
+	min, max float64) (*geom.LinearRing, error) {
 
 	var resultCoords []float64
 	addCoord := func(c planar.Coord) {
@@ -105,8 +110,8 @@ func ClipLinearRingByAxis(
 	for i := 0; i < length; i += 2 {
 		aCoord := planar.Coord(flatCoords[i:(i + 2)])
 		bCoord := planar.Coord(flatCoords[(i + 2):(i + 4)])
-		a := aCoord.AtAxis(axis)
-		b := bCoord.AtAxis(axis)
+		a := aCoord.ValueAtAxis(axis)
+		b := bCoord.ValueAtAxis(axis)
 
 		if a < min {
 			if b >= min {
@@ -147,7 +152,7 @@ func ClipLinearRingByAxis(
 		if !firstCoord.Equals(lastCoord) {
 			addCoord(firstCoord)
 		}
-		return geom.NewLinearRingFlat(geom.XY, resultCoords)
+		return geom.NewLinearRingFlat(geom.XY, resultCoords), nil
 	}
-	return nil
+	return nil, ErrEmptyResult
 }

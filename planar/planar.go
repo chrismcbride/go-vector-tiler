@@ -1,38 +1,46 @@
-// Primitives for planar geometry
+// Package planar provides primitives for planar geometry
 package planar
 
+// An Axis in euclidean space
 type Axis int
 
+// Axis definitions
 const (
 	XAxis Axis = 0
 	YAxis      = 1
 )
 
+// Coord represents A 2D coordinate as a slice of 64bit floats
 type Coord []float64
 
+// X return the X value of the coord. Assumes that is position 0.
 func (c Coord) X() float64 {
 	return c[int(XAxis)]
 }
 
+// Y returns the Y value of the coord. Assumes that is position 1.
 func (c Coord) Y() float64 {
 	return c[int(YAxis)]
 }
 
-func (c Coord) AtAxis(axis Axis) float64 {
+// ValueAtAxis returns the coord value at a given axis
+func (c Coord) ValueAtAxis(axis Axis) float64 {
 	return c[int(axis)]
 }
 
+// Equals compares two coords
 func (c Coord) Equals(other Coord) bool {
 	return (c.X() == other.X()) && (c.Y() == other.Y())
 }
 
-// An infinite line at a given value on an axis
+// AxisLine represents an infinite line at a given value on an axis
 type AxisLine interface {
 	// Given two coordinates representing a line, returns the coordiante where
 	// the line meets the infinite axis line
 	Intersection(start, end Coord) Coord
 }
 
+// Line creates a line on this axis at a given value
 func (a Axis) Line(axisValue float64) AxisLine {
 	switch a {
 	case XAxis:
