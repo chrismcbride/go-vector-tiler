@@ -104,10 +104,10 @@ func LinearRingByAxis(
 		resultCoords = append(resultCoords, c.X(), c.Y())
 	}
 	flatCoords := lr.FlatCoords()
-	length := len(flatCoords)
+	endIndex := len(flatCoords) - 2
 	minLine := axis.Line(min)
 	maxLine := axis.Line(max)
-	for i := 0; i < length; i += 2 {
+	for i := 0; i < endIndex; i += 2 {
 		aCoord := planar.Coord(flatCoords[i:(i + 2)])
 		bCoord := planar.Coord(flatCoords[(i + 2):(i + 4)])
 		a := aCoord.ValueAtAxis(axis)
@@ -119,7 +119,7 @@ func LinearRingByAxis(
 				addCoord(minLine.Intersection(aCoord, bCoord))
 				if b > max { // ---|-----|-->
 					addCoord(maxLine.Intersection(aCoord, bCoord))
-				} else if i == (length - 2) {
+				} else if i == endIndex {
 					// At the last point and B is in bounds. Include it
 					addCoord(bCoord)
 				}
@@ -130,16 +130,16 @@ func LinearRingByAxis(
 				addCoord(maxLine.Intersection(aCoord, bCoord))
 				if b < min { // <--|----|---
 					addCoord(minLine.Intersection(aCoord, bCoord))
-				} else if i == (length - 2) {
+				} else if i == endIndex {
 					// last point
 					addCoord(bCoord)
 				}
 			}
 		} else {
 			addCoord(aCoord)
-			if b < min { // <--|---  |
+			if b <= min { // <--|---  |
 				addCoord(minLine.Intersection(aCoord, bCoord))
-			} else if b > max { // |  ---|-->
+			} else if b >= max { // |  ---|-->
 				addCoord(maxLine.Intersection(aCoord, bCoord))
 			}
 		}
