@@ -11,7 +11,6 @@ import (
 
 	geom "github.com/twpayne/go-geom"
 
-	"github.com/chrismcbride/go-vector-tiler/bounds"
 	"github.com/chrismcbride/go-vector-tiler/metrics"
 	"github.com/chrismcbride/go-vector-tiler/planar"
 )
@@ -105,36 +104,40 @@ func LinearRingByAxis(
 	for i := 0; i < endIndex; i += 2 {
 		aCoord := planar.Coord(flatCoords[i:(i + 2)])
 		bCoord := planar.Coord(flatCoords[(i + 2):(i + 4)])
-		aCmp := axisBounds.CompareCoord(aCoord)
-		bCmp := axisBounds.CompareCoord(bCoord)
+		a := aCoord.ValueAtAxis(axisBounds.Axis)
+		b := bCoord.ValueAtAxis(axisBounds.Axis)
 
 		switch {
-		case aCmp == bounds.LessThan && bCmp != bounds.LessThan:
-			// ---|-->  |
-			addCoord(axisBounds.IntersectMin(aCoord, bCoord))
-			if bCmp == bounds.GreaterThan {
-				// ---|-----|-->
-				addCoord(axisBounds.IntersectMax(aCoord, bCoord))
-			}
-		case aCmp == bounds.GreaterThan && bCmp != bounds.GreaterThan:
-			// |  <--|---
-			addCoord(axisBounds.IntersectMax(aCoord, bCoord))
-			if bCmp == bounds.LessThan {
-				// <--|----|---
+		case a < axisBounds.Min:
+			if b >= axisBounds.Min {
+				// ---|-->  |
 				addCoord(axisBounds.IntersectMin(aCoord, bCoord))
+				if b > axisBounds.Max {
+					// ---|-----|-->
+					addCoord(axisBounds.IntersectMax(aCoord, bCoord))
+				}
 			}
-		case aCmp == bounds.Inside:
+		case a > axisBounds.Max:
+			if b <= axisBounds.Max {
+				// |  <--|---
+				addCoord(axisBounds.IntersectMax(aCoord, bCoord))
+				if b < axisBounds.Min {
+					// <--|----|---
+					addCoord(axisBounds.IntersectMin(aCoord, bCoord))
+				}
+			}
+		default:
 			addCoord(aCoord)
-			if bCmp == bounds.LessThan {
+			if b < axisBounds.Min {
 				// <--|---  |
 				addCoord(axisBounds.IntersectMin(aCoord, bCoord))
-			} else if bCmp == bounds.GreaterThan {
+			} else if b > axisBounds.Max {
 				// |  ---|-->
 				addCoord(axisBounds.IntersectMax(aCoord, bCoord))
 			}
 		}
 
-		if i == endIndex && bCmp == bounds.Inside {
+		if i == endIndex && b >= axisBounds.Min && b <= axisBounds.Max {
 			// At the last point and B is in bounds. Include it, otherwise it will be
 			// part of the next line segment
 			addCoord(bCoord)
