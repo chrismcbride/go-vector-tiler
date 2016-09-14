@@ -40,6 +40,12 @@ func ByAxis(g geom.T, axisBounds *planar.AxisBounds) (geom.T, error) {
 	switch geometry := g.(type) {
 	case *geom.MultiPolygon:
 		return MultiPolygonByAxis(geometry, axisBounds)
+	case *geom.MultiLineString:
+		return MultiLineStringByAxis(geometry, axisBounds)
+	case *geom.MultiPoint:
+		return MultiPointByAxis(geometry, axisBounds)
+	case *geom.LineString:
+		return LineStringByAxis(geometry, axisBounds)
 	case *geom.Polygon:
 		return PolygonByAxis(geometry, axisBounds)
 	case *geom.LinearRing:
@@ -64,6 +70,58 @@ func MultiPolygonByAxis(
 	}
 	if result.NumPolygons() > 0 {
 		return result, nil
+	}
+	return nil, ErrEmptyResult
+}
+
+// MultiLineStringByAxis inclusively clips a multiLineString along axis bounds
+// Returns either a LineString or MultiLineString
+func MultiLineStringByAxis(
+	mls *geom.MultiLineString, axisBounds *planar.AxisBounds) (geom.T, error) {
+
+	result := geom.NewMultiLineString(geom.XY)
+	numLines := mls.NumLineStrings()
+	for i := 0; i < numLines; i++ {
+		clipped, err := LineStringByAxis(mls.LineString(i), axisBounds)
+		if err != ErrEmptyResult {
+			switch geometry := clipped.(type) {
+			case *geom.LineString:
+				result.Push(geometry)
+			case *geom.MultiLineString:
+				numLines2 := geometry.NumLineStrings()
+				for j := 0; j < numLines2; j++ {
+					result.Push(geometry.LineString(j))
+				}
+			}
+		}
+	}
+	if result.Empty() {
+		return nil, ErrEmptyResult
+	}
+	if result.NumLineStrings() == 1 {
+		return result.LineString(0), nil
+	}
+	return result, nil
+}
+
+// MultiPointByAxis inclusively clips a multipoint along axis bounds
+func MultiPointByAxis(
+	mp *geom.MultiPoint,
+	axisBounds *planar.AxisBounds) (*geom.MultiPoint, error) {
+
+	var resultCoords []float64
+	flatCoords := mp.FlatCoords()
+	endIndex := len(flatCoords)
+	for i := 0; i < endIndex; i += 2 {
+		coord := planar.Coord(flatCoords[i:(i + 2)])
+		value := coord.ValueAtAxis(axisBounds.Axis)
+
+		if value >= axisBounds.Min && value <= axisBounds.Max {
+			resultCoords = append(resultCoords, coord.X(), coord.Y())
+		}
+	}
+	if len(resultCoords) > 0 {
+		return geom.NewMultiPointFlat(geom.XY, resultCoords), nil
 	}
 	return nil, ErrEmptyResult
 }
@@ -137,7 +195,7 @@ func LinearRingByAxis(
 			}
 		}
 
-		if i == endIndex && b >= axisBounds.Min && b <= axisBounds.Max {
+		if i == (endIndex-2) && b >= axisBounds.Min && b <= axisBounds.Max {
 			// At the last point and B is in bounds. Include it, otherwise it will be
 			// part of the next line segment
 			addCoord(bCoord)
@@ -154,4 +212,81 @@ func LinearRingByAxis(
 		return geom.NewLinearRingFlat(geom.XY, resultCoords), nil
 	}
 	return nil, ErrEmptyResult
+}
+
+// LineStringByAxis inclusively clips a line string along axis bounds. May
+// return either a LineString or MultiLineString.
+func LineStringByAxis(
+	ls *geom.LineString, axisBounds *planar.AxisBounds) (geom.T, error) {
+
+	var currentLineCoords []float64
+	addCoord := func(c planar.Coord) {
+		currentLineCoords = append(currentLineCoords, c.X(), c.Y())
+	}
+	multiLine := geom.NewMultiLineString(geom.XY)
+	newLineString := func() {
+		multiLine.Push(geom.NewLineStringFlat(geom.XY, currentLineCoords))
+		currentLineCoords = make([]float64, 0)
+	}
+	flatCoords := ls.FlatCoords()
+	endIndex := len(flatCoords) - 2
+	for i := 0; i < endIndex; i += 2 {
+		aCoord := planar.Coord(flatCoords[i:(i + 2)])
+		bCoord := planar.Coord(flatCoords[(i + 2):(i + 4)])
+		a := aCoord.ValueAtAxis(axisBounds.Axis)
+		b := bCoord.ValueAtAxis(axisBounds.Axis)
+
+		switch {
+		case a < axisBounds.Min:
+			if b >= axisBounds.Min {
+				// ---|-->  |
+				addCoord(axisBounds.IntersectMin(aCoord, bCoord))
+				if b > axisBounds.Max {
+					// ---|-----|-->
+					addCoord(axisBounds.IntersectMax(aCoord, bCoord))
+					newLineString()
+				}
+			}
+		case a > axisBounds.Max:
+			if b <= axisBounds.Max {
+				// |  <--|---
+				addCoord(axisBounds.IntersectMax(aCoord, bCoord))
+				if b < axisBounds.Min {
+					// <--|----|---
+					addCoord(axisBounds.IntersectMin(aCoord, bCoord))
+					newLineString()
+				}
+			}
+		default:
+			addCoord(aCoord)
+			if b < axisBounds.Min {
+				// <--|---  |
+				addCoord(axisBounds.IntersectMin(aCoord, bCoord))
+				newLineString()
+			} else if b > axisBounds.Max {
+				// |  ---|-->
+				addCoord(axisBounds.IntersectMax(aCoord, bCoord))
+				newLineString()
+			}
+		}
+
+		if i == (endIndex-2) && b >= axisBounds.Min && b <= axisBounds.Max {
+			// At the last point and B is in bounds. Include it, otherwise it will be
+			// part of the next line segment
+			addCoord(bCoord)
+		}
+	}
+
+	// add the final line
+	if len(currentLineCoords) > 0 {
+		newLineString()
+	}
+
+	if multiLine.Empty() {
+		return nil, ErrEmptyResult
+	}
+	if multiLine.NumLineStrings() == 1 {
+		return multiLine.LineString(0), nil
+	}
+	return multiLine, nil
 }

@@ -35,6 +35,134 @@ func TestByXAxis(t *testing.T) {
 	}
 }
 
+func TestPolygonByAxis(t *testing.T) {
+	lr := geom.NewLinearRingFlat(geom.XY, []float64{
+		0, 0,
+		50, 0,
+		50, 10,
+		20, 10,
+		20, 20,
+		30, 20,
+		30, 30,
+		50, 30,
+		50, 40,
+		25, 40,
+		25, 50,
+		0, 50,
+		0, 60,
+		25, 60,
+		0, 0,
+	})
+	poly := geom.NewPolygon(geom.XY)
+	poly.Push(lr)
+
+	clipped, err := PolygonByAxis(
+		poly, planar.NewAxisBounds(planar.XAxis, 10, 40))
+	if err != nil {
+		t.Error(err)
+	}
+	coords := clipped.FlatCoords()
+	expected := []float64{
+		10, 0,
+		40, 0,
+		40, 10,
+		20, 10,
+		20, 20,
+		30, 20,
+		30, 30,
+		40, 30,
+		40, 40,
+		25, 40,
+		25, 50,
+		10, 50,
+		10, 60,
+		25, 60,
+		10, 24,
+		10, 0,
+	}
+	if !compareFloatSlice(expected, coords) {
+		t.Errorf("Expected %v, got %v", expected, coords)
+	}
+}
+
+func TestLineStringByAxis(t *testing.T) {
+	ls := geom.NewLineStringFlat(geom.XY, []float64{
+		0, 0,
+		50, 0,
+		50, 10,
+		20, 10,
+		20, 20,
+		30, 20,
+		30, 30,
+		50, 30,
+		50, 40,
+		25, 40,
+		25, 50,
+		0, 50,
+		0, 60,
+		25, 60,
+		30, 60,
+	})
+	clipped, err := LineStringByAxis(
+		ls, planar.NewAxisBounds(planar.XAxis, 10, 40))
+	if err != nil {
+		t.Error(err)
+	}
+	out := clipped.(*geom.MultiLineString)
+	if out.NumLineStrings() != 4 {
+		t.Errorf("Expected 4 line strings, got %d", out.NumLineStrings())
+	}
+	expected := [][]float64{
+		{10, 0, 40, 0},
+		{40, 10, 20, 10, 20, 20, 30, 20, 30, 30, 40, 30},
+		{40, 40, 25, 40, 25, 50, 10, 50},
+		{10, 60, 25, 60, 30, 60},
+	}
+	for i, coords := range expected {
+		actual := out.LineString(i).FlatCoords()
+		if !compareFloatSlice(coords, actual) {
+			t.Errorf("Expected %v, got %v", coords, actual)
+		}
+	}
+}
+
+func TestMultiPointByAxis(t *testing.T) {
+	mp := geom.NewMultiPointFlat(geom.XY, []float64{
+		0, 0,
+		50, 0,
+		50, 10,
+		20, 10,
+		20, 20,
+		30, 20,
+		30, 30,
+		50, 30,
+		50, 40,
+		25, 40,
+		25, 50,
+		0, 50,
+		0, 60,
+		25, 60,
+	})
+	clipped, err := MultiPointByAxis(
+		mp, planar.NewAxisBounds(planar.XAxis, 10, 40))
+	if err != nil {
+		t.Error(err)
+	}
+	expected := []float64{
+		20, 10,
+		20, 20,
+		30, 20,
+		30, 30,
+		25, 40,
+		25, 50,
+		25, 60,
+	}
+	coords := clipped.FlatCoords()
+	if !compareFloatSlice(expected, coords) {
+		t.Errorf("Expected %v, got %v", expected, coords)
+	}
+}
+
 func TestByYAxis(t *testing.T) {
 	lr := geom.NewLinearRingFlat(geom.XY, []float64{
 		10, 10,

@@ -18,7 +18,7 @@ func (a Axis) Invert() Axis {
 	return XAxis
 }
 
-// AxisBounds inclusively compares geometries against axis boundaries
+// AxisBounds contains bounding lines for a given axis
 type AxisBounds struct {
 	Axis Axis
 	Min  float64
